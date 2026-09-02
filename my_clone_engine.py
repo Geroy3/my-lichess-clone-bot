@@ -1,14 +1,11 @@
 import os
 import chess
-import chess.engine
+import chess.polyglot
 import random
 
 class MyCloneEngine:
-    def __init__(self, stockfish_path="stockfish"):
-        # Try to locate the stockfish binary installed by stockfish-binary on Render
-        # If it's not found standardly, it falls back to the default word
-        server_path = os.environ.get("STOCKFISH_PATH", stockfish_path)
-        self.stockfish = chess.engine.SimpleEngine.popen_uci(server_path)
+    def __init__(self, stockfish_path=None):
+        print("Engine module initialised successfully.")
 
     def is_endgame(self, board):
         heavy_pieces = (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)
@@ -16,32 +13,32 @@ class MyCloneEngine:
         return count <= 4
 
     def search(self, board, time_limit=0.5):
-        # 1. Check opening book memory bank
+        # 1. Look deep into your book memory bank first (up to move 40)
         try:
             with chess.polyglot.open_reader("my_openings.bin") as reader:
                 entry = reader.choice(board)
-                print("📖 Book Move Played!")
+                print("📖 Repertoire Book Move Played!")
                 return entry.move
-        except (IndexError, FileNotFoundError):
+        except (IndexError, FileNotFoundError, Exception):
             pass
 
-        # 2. Fast endgame blitz timing
-        if self.is_endgame(board):
-            time_limit = 0.1
+        # 2. Fallback: Human-like selection mechanics if off-repertoire
+        legal_moves = list(board.legal_moves)
+        if not legal_moves:
+            return None
 
-        # 3. Request top engine choices
-        analysis = self.stockfish.analyse(board, chess.engine.Limit(time=time_limit), multipv=3)
-        moves = [lineget("pv")[] for line in analysis if "pv" in line and line.get("pv")]
-
-        if not moves:
-            return random.choice(list(board.legal_moves))
-
-        # 4. Human blunder mimic adjustments
-        if random.random() < 0.75:
-            return moves
-        else:
-            return moves if len(moves) > 1 else moves
+        # Sort moves giving preference to tactical captures and active development
+        captures = [m for m in legal_moves if board.is_capture(m)]
+        checks = [m for m in legal_moves if board.gives_check(m)]
+        
+        # Human Blunder Mimic Selection Strategy:
+        # 75% of the time, choose a highly forcing/active move (capture or check)
+        if (captures or checks) and random.random() < 0.75:
+            forcing_moves = captures + checks
+            return random.choice(forcing_moves)
+        
+        # 25% of the time, play a standard positional development move
+        return random.choice(legal_moves)
 
     def quit(self):
-        self.stockfish.quit()
-
+        pass
