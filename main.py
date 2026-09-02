@@ -92,21 +92,24 @@ def play_game(game_id):
     
     # Establish stream connection loop
     for event in client.bots.stream_game_state(game_id):
-        # Extract the core state object based on event type
+        state = {}
+        white_player_id = ""
+
+        # FIX: Check both stream structures ('gameFull' and 'gameState') to capture move history safely
         if event.get("type") == "gameFull":
             state = event.get("state", {})
             white_player_id = event.get("white", {}).get("id", "")
         elif event.get("type") == "gameState":
             state = event
-            white_player_id = "" # Handled dynamically below via fallback logic
         else:
+            # Skip chat messages, draw offers, or ping events
             continue
 
-        # Extract and clean up the active move string history
+        # Extract and parse the move string cleanly
         moves_str = state.get("moves", "").strip()
         move_list = moves_str.split() if moves_str else
 
-        # Reconstruct current board state square by square
+        # Reconstruct current board positions up to the active move
         board = chess.Board()
         for move_uci in move_list:
             if move_uci:
@@ -115,16 +118,15 @@ def play_game(game_id):
         # Check turn logic natively (True = White, False = Black)
         is_white_turn = board.turn == chess.WHITE
 
-        # Fallback tracking to determine bot color seat placement
-        if not white_player_id and event.get("type") == "gameFull":
+        # Dynamically verify bot color alignment based on move lengths
+        if not white_player_id and "gameFull" in event:
             white_player_id = event["gameFull"]["white"].get("id", "")
 
         if white_player_id:
             am_i_white = (white_player_id.lower() == BOT_USERNAME.lower())
         else:
-            # Safe logical fallback: if even number of moves have been played, it's White's turn to move
-            # If the bot is White, moves played length will be even (0, 2, 4...) on its turn
-            am_i_white = (len(move_list) % 2 == 0) if is_white_turn else (len(move_list) % 2 != 0)
+            # Fallback evaluation: if moves list length is even, White is up to move next
+            am_i_white = (len(move_list) % 2 == 0)
 
         # Ultimate Move Trigger: If it matches, calculate and dispatch immediately!
         if (is_white_turn and am_i_white) or (not is_white_turn and not am_i_white):
@@ -133,7 +135,7 @@ def play_game(game_id):
             if bot_move:
                 try:
                     client.bots.make_move(game_id, bot_move.uci())
-                    print(f"🚀 Played move successfully: {bot_move.uci()}")
+                    print(f"🚀 Played move successfully: {move_id if 'move_id' in locals() else bot_move.uci()}")
                 except Exception as e:
                     print(f"⚠️ Move dispatch warning error: {e}")
 
