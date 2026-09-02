@@ -1,0 +1,18 @@
+token: "LICHESS_BOT_TOKEN" # Handled automatically via Render Env Variables
+
+engine:
+  name: "my_clone_engine.py"
+  protocol: "homemade" # Tells the bot to use your custom Python wrapper script
+
+polyglot:
+  enabled: true
+  book:
+    standard:
+      - my_openings.bin # Your automatically synchronized openings file
+  min_weight: 1
+  selection: weighted_random # Mixes up variation setups based on your historical play rates
+  max_depth: 40 # Follows your repertoire deep into the game
+
+challenge:
+  accept_bot: true
+  only_rated: false
