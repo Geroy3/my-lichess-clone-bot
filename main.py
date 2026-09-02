@@ -89,25 +89,26 @@ BOT_USERNAME = "SGYZK9"
 
 def play_game(game_id):
     print(f"♟️ Dedicated thread spawned for game ID: {game_id}")
+    am_i_white = True # Standard baseline defaults
     
     # Establish stream connection loop
     for event in client.bots.stream_game_state(game_id):
         state = {}
-        white_player_id = ""
-
-        # FIX: Check both stream structures ('gameFull' and 'gameState') to capture move history safely
+        
         if event.get("type") == "gameFull":
             state = event.get("state", {})
-            white_player_id = event.get("white", {}).get("id", "")
+            # Determine color seat definitively from the initial game setup structure
+            white_id = event.get("white", {}).get("id", "")
+            if white_id:
+                am_i_white = (white_id.lower() == BOT_USERNAME.lower())
         elif event.get("type") == "gameState":
             state = event
         else:
-            # Skip chat messages, draw offers, or ping events
             continue
 
         # Extract and parse the move string cleanly
         moves_str = state.get("moves", "").strip()
-        move_list = moves_str.split() if moves_str else
+        move_list = moves_str.split() if moves_str else []
 
         # Reconstruct current board positions up to the active move
         board = chess.Board()
@@ -118,24 +119,14 @@ def play_game(game_id):
         # Check turn logic natively (True = White, False = Black)
         is_white_turn = board.turn == chess.WHITE
 
-        # Dynamically verify bot color alignment based on move lengths
-        if not white_player_id and "gameFull" in event:
-            white_player_id = event["gameFull"]["white"].get("id", "")
-
-        if white_player_id:
-            am_i_white = (white_player_id.lower() == BOT_USERNAME.lower())
-        else:
-            # Fallback evaluation: if moves list length is even, White is up to move next
-            am_i_white = (len(move_list) % 2 == 0)
-
-        # Ultimate Move Trigger: If it matches, calculate and dispatch immediately!
+        # Fixed Turn Logic Condition: Is it the bot's turn to move?
         if (is_white_turn and am_i_white) or (not is_white_turn and not am_i_white):
             print(f"⚡ SGYZK9 is calculating move for turn {board.fullmove_number}...")
             bot_move = engine.search(board)
             if bot_move:
                 try:
                     client.bots.make_move(game_id, bot_move.uci())
-                    print(f"🚀 Played move successfully: {move_id if 'move_id' in locals() else bot_move.uci()}")
+                    print(f"🚀 Played move successfully: {bot_move.uci()}")
                 except Exception as e:
                     print(f"⚠️ Move dispatch warning error: {e}")
 
