@@ -10,7 +10,6 @@ import berserk
 # ==========================================
 # 1. Render 24/7 Free Tier Web Portal Bypass
 # ==========================================
-# This MUST bind immediately and use the dynamic port Render provides
 class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -19,15 +18,13 @@ class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(b"SGYZK9 Engine Active 24/7!")
 
     def log_message(self, format, *args):
-        return # Silences continuous web request spam in your Render logs
+        return 
 
 def keep_alive():
-    # Render dynamically passes a port to use; default to 10000 if empty
     port = int(os.environ.get("PORT", 10000))
     server = http.server.HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-# Start the web web server IMMEDIATELY in a background thread so Render passes the deploy
 threading.Thread(target=keep_alive, daemon=True).start()
 print("🌐 Web Portal Bound! Render health checks cleared.")
 
@@ -140,5 +137,4 @@ def run_bot_pipeline():
             game_id = event["game"]["id"]
             threading.Thread(target=play_game, args=(game_id,), daemon=True).start()
 
-# Launch everything inside an asynchronous safe pipeline worker
 run_bot_pipeline()
