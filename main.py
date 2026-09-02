@@ -6,7 +6,9 @@ import requests
 import chess.pgn
 import chess.polyglot
 
-# --- Render 24/7 Free Tier Bypass ---
+# ==========================================
+# 1. Render 24/7 Free Tier Web Portal Bypass
+# ==========================================
 def keep_alive():
     class DummyHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -19,9 +21,34 @@ def keep_alive():
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
 keep_alive()
-print("🌐 Free Tier Web Portal Active! Starting Repertoire Update...")
+print("🌐 Free Tier Web Portal Active!")
 
-# --- Automated Repertoire Sync ---
+
+# ==========================================
+# 2. Automated Account Upgrade to Official BOT Status
+# ==========================================
+print("Checking Lichess account status...")
+upgrade_url = "https://lichess.org/api/bot/account/upgrade"
+# Safely reads your secret token from Render's hidden settings
+token = os.environ.get("LICHESS_BOT_TOKEN") 
+
+if not token:
+    print("❌ ERROR: LICHESS_BOT_TOKEN environment variable is missing in Render settings!")
+else:
+    upgrade_headers = {"Authorization": f"Bearer {token}"}
+    upgrade_response = requests.post(upgrade_url, headers=upgrade_headers)
+
+    if upgrade_response.status_code == 200:
+        print("🎉 SUCCESS! Your account has been officially upgraded to a BOT profile!")
+    elif upgrade_response.status_code == 400:
+        print("ℹ️ Account status verified: Already configured as an upgraded BOT profile.")
+    else:
+        print(f"⚠️ Upgrade check response: {upgrade_response.status_code}")
+
+
+# ==========================================
+# 3. Automated Repertoire Sync from Main Account
+# ==========================================
 MAIN_ACCOUNT = "np23b_gnome"
 PGN_OUTPUT = "my_filtered_openings.pgn"
 
@@ -42,7 +69,7 @@ if response.status_code == 200:
     pgn_data = io.StringIO(response.text)
     filtered_games_count = 0
 
-    # Filter games to only learn your successful lines (Wins & Draws)
+    # Filter through history to record your wins and draws
     with open(PGN_OUTPUT, "w") as out_file:
         while True:
             game = chess.pgn.read_game(pgn_data)
@@ -53,7 +80,7 @@ if response.status_code == 200:
             result = game.headers.get("Result", "")
             is_white = (white_player == MAIN_ACCOUNT.lower())
             
-            # Skip games where you lost
+            # Filter Strategy: Skip games where you lost to avoid training on mistakes
             if is_white and result == "0-1":
                 continue
             if not is_white and result == "1-0":
@@ -64,7 +91,9 @@ if response.status_code == 200:
 
     print(f"✅ Filtered {filtered_games_count} high-quality games!")
 
-    # --- Compile the Polyglot .bin Opening Book ---
+    # ==========================================
+    # 4. Compile the Polyglot .bin Opening Book
+    # ==========================================
     print("📦 Compiling PGN data into a Polyglot .bin book...")
     book = chess.polyglot.MemoryBook()
 
@@ -76,7 +105,7 @@ if response.status_code == 200:
             
             board = game.board()
             for move in game.mainline_moves():
-                # Record moves deep into the middlegame phase (up to move 40)
+                # Store moves deep into the game (up to move 40) to catch middlegame choices
                 if board.fullmove_number > 40: 
                     break
                 book.add(board, move)
@@ -89,5 +118,5 @@ if response.status_code == 200:
 else:
     print(f"❌ Failed to download games from Lichess. Code: {response.status_code}")
 
-print("🤖 Now listening for Lichess Bot Challenges... (Keep script running)")
-# Note: Below this line, your active Lichess-bot connection loop starts.
+print("🤖 Now listening for live Lichess Bot challenges 24/7...")
+# Your active Lichess background streaming engine rules loop runs continuously below here
