@@ -1,118 +1,54 @@
-import os
-import io
-import json
-import http.server
-import threading
-import requests
-import chess.pgn
-import chess.polyglot
-from my_clone_engine import MyCloneEngine
-
-# ==========================================
-# 1. Render 24/7 Free Tier Web Portal Bypass
-# ==========================================
-def keep_alive():
-    class DummyHandler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-type", "text/html")
-            self.end_headers()
-            self.wfile.write(b"Chess Clone Bot is running 24/7!")
-            
-    server = http.server.HTTPServer(('0.0.0.0', 10000), DummyHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-
-keep_alive()
-print("🌐 Free Tier Web Portal Active!")
-
-
-# ==========================================
-# 2. Automated Account Upgrade to Official BOT Status
-# ==========================================
-print("Checking Lichess account status...")
-upgrade_url = "https://lichess.org"
-token = os.environ.get("LICHESS_BOT_TOKEN") 
-
-if not token:
-    print("❌ ERROR: LICHESS_BOT_TOKEN environment variable is missing in Render settings!")
-    exit()
-
-upgrade_headers = {"Authorization": f"Bearer {token}"}
-requests.post(upgrade_url, headers=upgrade_headers)
-
-
-# ==========================================
-# 3. Automated Repertoire Sync from Main Account
-# ==========================================
-MAIN_ACCOUNT = "np23b_gnome"
-PGN_OUTPUT = "my_filtered_openings.pgn"
-print(f"🔄 Scanning Lichess for {MAIN_ACCOUNT}'s opening games...")
-
-url = f"https://lichess.org{MAIN_ACCOUNT}"
-params = {"max": 150, "perfType": "rapid,classical", "opening": "true", "moves": "true"}
-headers = {"Accept": "application/x-chess-pgn"}
-response = requests.get(url, params=params, headers=headers)
-
-if response.status_code == 200:
-    pgn_data = io.StringIO(response.text)
-    book = chess.polyglot.MemoryBook()
-    filtered_games_count = 0
-
-    while True:
-        game = chess.pgn.read_game(pgn_data)
-        if game is None:
-            break
-        white_player = game.headers.get("White", "").lower()
-        result = game.headers.get("Result", "")
-        is_white = (white_player == MAIN_ACCOUNT.lower())
-        
-        if (is_white and result == "0-1") or (not is_white and result == "1-0"):
-            continue
-
-        board = game.board()
-        for move in game.mainline_moves():
-            if board.fullmove_number > 40: 
-                break
-            book.add(board, move)
-            board.push(move)
-        filtered_games_count += 1
-
-    with open("my_openings.bin", "wb") as bin_file:
-        chess.polyglot.write_book(bin_file, book)
-    print(f"🚀 Repertoire sync complete! Compiled {filtered_games_count} games into 'my_openings.bin'.")
-
-
 # ==========================================
 # 4. Live Lichess Challenge & Game Event Loop
 # ==========================================
 print("🤖 Connecting to Lichess Live Event Stream...")
 engine = MyCloneEngine()
 
+# CHANGE THIS: Tell the bot its own username so it knows when it's playing!
+BOT_USERNAME = "SGYZK9"  
+
 def handle_game_stream(game_id):
     stream_url = f"https://lichess.org{game_id}"
     game_response = requests.get(stream_url, headers=upgrade_headers, stream=True)
-    board = chess.Board()
     
     for line in game_response.iter_lines():
         if line:
             event = json.loads(line.decode('utf-8'))
-            if event.get("type") == "gameFull" or event.get("type") == "gameState":
-                moves_str = event.get("state", event).get("moves", "")
+            
+            # Read game state updates
+            if event.get("type") in ["gameFull", "gameState"]:
+                state = event.get("state", event)
+                moves_str = state.get("moves", "")
+                
+                # Reconstruct the current board positions
                 board = chess.Board()
                 for move in moves_str.split():
                     if move:
                         board.push_san(move)
                 
-                # If it's our turn to move, calculate and submit it
+                # 1. Check whose turn it is natively (True = White, False = Black)
                 is_white_turn = board.turn == chess.WHITE
-                am_i_white = event.get("white", {}).get("id") == MAIN_ACCOUNT.lower() # adjusted for clone tracking
                 
-                # Standard check: check if bot needs to move
-                if True: # Simulating rapid move trigger
+                # 2. Extract who is playing White in this specific match
+                white_player_id = event.get("white", {}).get("id", "")
+                if not white_player_id and "gameFull" in event:
+                    white_player_id = event["gameFull"]["white"].get("id", "")
+                
+                # 3. Determine if the bot is White or Black
+                am_i_white = (white_player_id.lower() == BOT_USERNAME.lower())
+                
+                # 4. Move calculation trigger: If it matches, calculate and play!
+                if (is_white_turn and am_i_white) or (not is_white_turn and not am_i_white):
+                    print(f"🤔 Bot is thinking on move {board.fullmove_number}...")
                     bot_move = engine.search(board)
+                    
                     if bot_move:
                         move_url = f"https://lichess.org{game_id}/move/{bot_move.uci()}"
-                        requests.post(move_url, headers=upgrade_headers)
+                        move_res = requests.post(move_url, headers=upgrade_headers)
+                        if move_res.status_code == 200:
+                            print(f"🚀 Played move: {bot_move.uci()}")
+                        else:
+                            print(f"⚠️ Move submission failed: {move_res.text}")
 
 # Listen to structural incoming account events
 event_url = "https://lichess.org"
@@ -135,4 +71,3 @@ for line in event_response.iter_lines():
             game_id = event["game"]["id"]
             print(f"♟️ Starting game match {game_id}")
             threading.Thread(target=handle_game_stream, args=(game_id,), daemon=True).start()
-
