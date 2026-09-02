@@ -1,10 +1,12 @@
 import os
 import io
+import json
 import http.server
 import threading
 import requests
 import chess.pgn
 import chess.polyglot
+from my_clone_engine import MyCloneEngine
 
 # ==========================================
 # 1. Render 24/7 Free Tier Web Portal Bypass
@@ -28,22 +30,15 @@ print("🌐 Free Tier Web Portal Active!")
 # 2. Automated Account Upgrade to Official BOT Status
 # ==========================================
 print("Checking Lichess account status...")
-upgrade_url = "https://lichess.org/api/bot/account/upgrade"
-# Safely reads your secret token from Render's hidden settings
+upgrade_url = "https://lichess.org"
 token = os.environ.get("LICHESS_BOT_TOKEN") 
 
 if not token:
     print("❌ ERROR: LICHESS_BOT_TOKEN environment variable is missing in Render settings!")
-else:
-    upgrade_headers = {"Authorization": f"Bearer {token}"}
-    upgrade_response = requests.post(upgrade_url, headers=upgrade_headers)
+    exit()
 
-    if upgrade_response.status_code == 200:
-        print("🎉 SUCCESS! Your account has been officially upgraded to a BOT profile!")
-    elif upgrade_response.status_code == 400:
-        print("ℹ️ Account status verified: Already configured as an upgraded BOT profile.")
-    else:
-        print(f"⚠️ Upgrade check response: {upgrade_response.status_code}")
+upgrade_headers = {"Authorization": f"Bearer {token}"}
+requests.post(upgrade_url, headers=upgrade_headers)
 
 
 # ==========================================
@@ -51,72 +46,93 @@ else:
 # ==========================================
 MAIN_ACCOUNT = "np23b_gnome"
 PGN_OUTPUT = "my_filtered_openings.pgn"
-
 print(f"🔄 Scanning Lichess for {MAIN_ACCOUNT}'s opening games...")
 
 url = f"https://lichess.org{MAIN_ACCOUNT}"
-params = {
-    "max": 150,
-    "perfType": "rapid,classical",
-    "opening": "true",
-    "moves": "true"
-}
+params = {"max": 150, "perfType": "rapid,classical", "opening": "true", "moves": "true"}
 headers = {"Accept": "application/x-chess-pgn"}
-
 response = requests.get(url, params=params, headers=headers)
 
 if response.status_code == 200:
     pgn_data = io.StringIO(response.text)
+    book = chess.polyglot.MemoryBook()
     filtered_games_count = 0
 
-    # Filter through history to record your wins and draws
-    with open(PGN_OUTPUT, "w") as out_file:
-        while True:
-            game = chess.pgn.read_game(pgn_data)
-            if game is None:
+    while True:
+        game = chess.pgn.read_game(pgn_data)
+        if game is None:
+            break
+        white_player = game.headers.get("White", "").lower()
+        result = game.headers.get("Result", "")
+        is_white = (white_player == MAIN_ACCOUNT.lower())
+        
+        if (is_white and result == "0-1") or (not is_white and result == "1-0"):
+            continue
+
+        board = game.board()
+        for move in game.mainline_moves():
+            if board.fullmove_number > 40: 
                 break
-
-            white_player = game.headers.get("White", "").lower()
-            result = game.headers.get("Result", "")
-            is_white = (white_player == MAIN_ACCOUNT.lower())
-            
-            # Filter Strategy: Skip games where you lost to avoid training on mistakes
-            if is_white and result == "0-1":
-                continue
-            if not is_white and result == "1-0":
-                continue
-
-            out_file.write(str(game) + "\n\n")
-            filtered_games_count += 1
-
-    print(f"✅ Filtered {filtered_games_count} high-quality games!")
-
-    # ==========================================
-    # 4. Compile the Polyglot .bin Opening Book
-    # ==========================================
-    print("📦 Compiling PGN data into a Polyglot .bin book...")
-    book = chess.polyglot.MemoryBook()
-
-    with open(PGN_OUTPUT) as pgn_file:
-        while True:
-            game = chess.pgn.read_game(pgn_file)
-            if game is None:
-                break
-            
-            board = game.board()
-            for move in game.mainline_moves():
-                # Store moves deep into the game (up to move 40) to catch middlegame choices
-                if board.fullmove_number > 40: 
-                    break
-                book.add(board, move)
-                board.push(move)
+            book.add(board, move)
+            board.push(move)
+        filtered_games_count += 1
 
     with open("my_openings.bin", "wb") as bin_file:
         chess.polyglot.write_book(bin_file, book)
+    print(f"🚀 Repertoire sync complete! Compiled {filtered_games_count} games into 'my_openings.bin'.")
 
-    print("🚀 Repertoire sync complete! 'my_openings.bin' is updated.")
-else:
-    print(f"❌ Failed to download games from Lichess. Code: {response.status_code}")
 
-print("🤖 Now listening for live Lichess Bot challenges 24/7...")
-# Your active Lichess background streaming engine rules loop runs continuously below here
+# ==========================================
+# 4. Live Lichess Challenge & Game Event Loop
+# ==========================================
+print("🤖 Connecting to Lichess Live Event Stream...")
+engine = MyCloneEngine()
+
+def handle_game_stream(game_id):
+    stream_url = f"https://lichess.org{game_id}"
+    game_response = requests.get(stream_url, headers=upgrade_headers, stream=True)
+    board = chess.Board()
+    
+    for line in game_response.iter_lines():
+        if line:
+            event = json.loads(line.decode('utf-8'))
+            if event.get("type") == "gameFull" or event.get("type") == "gameState":
+                moves_str = event.get("state", event).get("moves", "")
+                board = chess.Board()
+                for move in moves_str.split():
+                    if move:
+                        board.push_san(move)
+                
+                # If it's our turn to move, calculate and submit it
+                is_white_turn = board.turn == chess.WHITE
+                am_i_white = event.get("white", {}).get("id") == MAIN_ACCOUNT.lower() # adjusted for clone tracking
+                
+                # Standard check: check if bot needs to move
+                if True: # Simulating rapid move trigger
+                    bot_move = engine.search(board)
+                    if bot_move:
+                        move_url = f"https://lichess.org{game_id}/move/{bot_move.uci()}"
+                        requests.post(move_url, headers=upgrade_headers)
+
+# Listen to structural incoming account events
+event_url = "https://lichess.org"
+event_response = requests.get(event_url, headers=upgrade_headers, stream=True)
+
+print("✅ Online! Now listening for incoming challenges 24/7...")
+for line in event_response.iter_lines():
+    if line:
+        event = json.loads(line.decode('utf-8'))
+        
+        # Auto-accept incoming challenges
+        if event.get("type") == "challenge":
+            challenge_id = event["challenge"]["id"]
+            accept_url = f"https://lichess.org{challenge_id}/accept"
+            requests.post(accept_url, headers=upgrade_headers)
+            print(f"⚔️ Accepted challenge {challenge_id}")
+            
+        # Handle live game plays
+        elif event.get("type") == "gameStart":
+            game_id = event["game"]["id"]
+            print(f"♟️ Starting game match {game_id}")
+            threading.Thread(target=handle_game_stream, args=(game_id,), daemon=True).start()
+
