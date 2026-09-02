@@ -1,73 +1,144 @@
-# ==========================================
-# 4. Live Lichess Challenge & Game Event Loop
-# ==========================================
-print("🤖 Connecting to Lichess Live Event Stream...")
-engine = MyCloneEngine()
+import os
+import io
+import http.server
+import threading
+import requests
+import chess.pgn
+import chess.polyglot
+import berserk
+from my_clone_engine import MyCloneEngine
 
-# CHANGE THIS: Tell the bot its own username so it knows when it's playing!
-BOT_USERNAME = "SGYZK9"  
-
-def handle_game_stream(game_id):
-    stream_url = f"https://lichess.org{game_id}"
-    game_response = requests.get(stream_url, headers=upgrade_headers, stream=True)
-    
-    for line in game_response.iter_lines():
-        if line:
-            event = json.loads(line.decode('utf-8'))
+# ==========================================
+# 1. Render 24/7 Free Tier Web Portal Bypass
+# ==========================================
+def keep_alive():
+    class DummyHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"SGYZK9 Engine Active 24/7!")
             
-            # Read game state updates
-            if event.get("type") in ["gameFull", "gameState"]:
-                state = event.get("state", event)
-                moves_str = state.get("moves", "")
-                
-                # Reconstruct the current board positions
-                board = chess.Board()
-                for move in moves_str.split():
-                    if move:
-                        board.push_san(move)
-                
-                # 1. Check whose turn it is natively (True = White, False = Black)
-                is_white_turn = board.turn == chess.WHITE
-                
-                # 2. Extract who is playing White in this specific match
-                white_player_id = event.get("white", {}).get("id", "")
-                if not white_player_id and "gameFull" in event:
-                    white_player_id = event["gameFull"]["white"].get("id", "")
-                
-                # 3. Determine if the bot is White or Black
-                am_i_white = (white_player_id.lower() == BOT_USERNAME.lower())
-                
-                # 4. Move calculation trigger: If it matches, calculate and play!
-                if (is_white_turn and am_i_white) or (not is_white_turn and not am_i_white):
-                    print(f"🤔 Bot is thinking on move {board.fullmove_number}...")
-                    bot_move = engine.search(board)
-                    
-                    if bot_move:
-                        move_url = f"https://lichess.org{game_id}/move/{bot_move.uci()}"
-                        move_res = requests.post(move_url, headers=upgrade_headers)
-                        if move_res.status_code == 200:
-                            print(f"🚀 Played move: {bot_move.uci()}")
-                        else:
-                            print(f"⚠️ Move submission failed: {move_res.text}")
+    server = http.server.HTTPServer(('0.0.0.0', 10000), DummyHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
 
-# Listen to structural incoming account events
-event_url = "https://lichess.org"
-event_response = requests.get(event_url, headers=upgrade_headers, stream=True)
+keep_alive()
+print("🌐 Free Tier Web Portal Active!")
 
-print("✅ Online! Now listening for incoming challenges 24/7...")
-for line in event_response.iter_lines():
-    if line:
-        event = json.loads(line.decode('utf-8'))
+
+# ==========================================
+# 2. Extract Token and Initialize Repertoire
+# ==========================================
+token = os.environ.get("LICHESS_BOT_TOKEN") 
+if not token:
+    print("❌ ERROR: LICHESS_BOT_TOKEN missing in Render environment variables!")
+    exit()
+
+MAIN_ACCOUNT = "np23b_gnome"
+PGN_OUTPUT = "my_filtered_openings.pgn"
+
+print(f"🔄 Syncing repertoire with {MAIN_ACCOUNT}'s recent wins...")
+url = f"https://lichess.org{MAIN_ACCOUNT}"
+params = {"max": 150, "perfType": "rapid,classical", "opening": "true", "moves": "true"}
+headers = {"Accept": "application/x-chess-pgn"}
+response = requests.get(url, params=params, headers=headers)
+
+if response.status_code == 200:
+    pgn_data = io.StringIO(response.text)
+    book = chess.polyglot.MemoryBook()
+    
+    while True:
+        game = chess.pgn.read_game(pgn_data)
+        if game is None:
+            break
+        white_player = game.headers.get("White", "").lower()
+        result = game.headers.get("Result", "")
+        is_white = (white_player == MAIN_ACCOUNT.lower())
         
-        # Auto-accept incoming challenges
+        if (is_white and result == "0-1") or (not is_white and result == "1-0"):
+            continue
+
+        board = game.board()
+        for move in game.mainline_moves():
+            if board.fullmove_number > 40: 
+                break
+            book.add(board, move)
+            board.push(move)
+
+    with open("my_openings.bin", "wb") as bin_file:
+        chess.polyglot.write_book(bin_file, book)
+    print("🚀 Opening book compilation successful!")
+
+
+# ==========================================
+# 3. Official Lichess Berserk Engine Client Loop
+# ==========================================
+print("🤖 Initialising Berserk streaming client...")
+session = berserk.TokenSession(token)
+client = berserk.Client(session=session)
+engine = MyCloneEngine()
+BOT_USERNAME = "SGYZK9"
+
+def play_game(game_id):
+    print(f"♟️ Thread active for active room ID: {game_id}")
+    board = chess.Board()
+    
+    # Establish a reliable, dedicated stream channel for this individual match
+    for event in client.bots.stream_game_state(game_id):
+        if event.get("type") in ["gameFull", "gameState"]:
+            state = event.get("state", event)
+            moves_str = state.get("moves", "").strip()
+            
+            # Reconstruct current board state
+            board = chess.Board()
+            if moves_str:
+                for move in moves_str.split():
+                    board.push_san(move)
+            
+            # Identify current turn
+            is_white_turn = board.turn == chess.WHITE
+            
+            # Track engine colors
+            white_player_id = ""
+            if "gameFull" in event:
+                white_player_id = event["gameFull"]["white"].get("id", "")
+            elif "white" in event:
+                white_player_id = event["white"].get("id", "")
+                
+            if white_player_id:
+                am_i_white = (white_player_id.lower() == BOT_USERNAME.lower())
+            else:
+                am_i_white = True
+            
+            # If it's the bot's turn, calculate and submit the move via the engine
+            if (is_white_turn and am_i_white) or (not is_white_turn and not am_i_white):
+                print(f"⚡ SGYZK9 is calculating turn move...")
+                bot_move = engine.search(board)
+                if bot_move:
+                    try:
+                        client.bots.make_move(game_id, bot_move.uci())
+                        print(f"🚀 Played move successfully: {bot_move.uci()}")
+                    except Exception as e:
+                        print(f"⚠️ Move dispatch exception error: {e}")
+
+def listen_for_events():
+    print("✅ Connection verified! Listening for challenges 24/7...")
+    # Listen to account events continuously
+    for event in client.bots.stream_incoming_events():
+        # Instant Auto-Accept routine
         if event.get("type") == "challenge":
             challenge_id = event["challenge"]["id"]
-            accept_url = f"https://lichess.org{challenge_id}/accept"
-            requests.post(accept_url, headers=upgrade_headers)
-            print(f"⚔️ Accepted challenge {challenge_id}")
-            
-        # Handle live game plays
+            challenger_name = event["challenge"]["challenger"]["id"]
+            print(f"⚔️ New incoming invitation detected from: {challenger_name}")
+            try:
+                client.bots.accept_challenge(challenge_id)
+                print(f"✅ Auto-accepted challenge ID: {challenge_id}")
+            except Exception as e:
+                print(f"❌ Failed to accept challenge: {e}")
+                
         elif event.get("type") == "gameStart":
             game_id = event["game"]["id"]
-            print(f"♟️ Starting game match {game_id}")
-            threading.Thread(target=handle_game_stream, args=(game_id,), daemon=True).start()
+            threading.Thread(target=play_game, args=(game_id,), daemon=True).start()
+
+# Launch event listening framework thread loop
+listen_for_events()
